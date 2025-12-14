@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es" id="html-doc">
+<head>
+    <meta charset="UTF-8">
+    <title>BorraCord</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <div class="title-container">
+            <img src="icons/icon48.png" id="title-icon" alt="BorraCord Icon">
+            <h1 data-i18n="title">BorraCord</h1>
+            
+            <div class="lang-selector" id="lang-selector">
+                <div class="selected-lang">
+                    <span class="flag" id="current-flag">🇪🇸</span>
+                    <span class="arrow">▼</span>
+                </div>
+                <ul class="lang-menu hidden" id="lang-menu">
+                    <li data-lang="es"><span class="flag">🇪🇸</span> Español</li>
+                    <li data-lang="pt"><span class="flag">🇵🇹</span> Português</li>
+                    <li data-lang="en"><span class="flag">🇺🇸</span> English</li>
+                    <li data-lang="fr"><span class="flag">🇫🇷</span> Français</li>
+                    <li data-lang="ja"><span class="flag">🇯🇵</span> 日本語</li>
+                    <li data-lang="de"><span class="flag">🇩🇪</span> Deutsch</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <label for="channel-id" data-i18n="lbl_channel_id">ID del Canal o del MD (Opcional)</label>
+            <input type="text" id="channel-id" placeholder="Auto-detectado (o pegar ID aquí)" data-i18n-ph="ph_channel_id">
+        </div>
+
+        <div class="setting-group">
+            <label for="guild-id" data-i18n="lbl_guild_id">ID del Servidor (Opcional)</label>
+            <input type="text" id="guild-id" placeholder="Auto-detectado (o pegar ID aquí)" data-i18n-ph="ph_guild_id">
+            <div class="checkbox-container" style="margin-top: 8px;">
+                <input type="checkbox" id="delete-all-server-checkbox">
+                <label for="delete-all-server-checkbox" data-i18n="lbl_delete_all_server">Borrar Todo (Servidor)</label>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <label data-i18n="lbl_mode">Modo de Borrado</label>
+            <div class="toggle-buttons">
+                <button id="mode-server" class="toggle-active" data-i18n="btn_server">Servidor</button>
+                <button id="mode-dm" data-i18n="btn_dm">MD</button>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <label for="delay-slider" data-i18n="lbl_delay">Delay (espera entre mensajes)</label>
+            <div class="slider-container">
+                <input type="range" id="delay-slider" min="500" max="5000" value="1000" step="100">
+                <span id="delay-value">1000 ms</span>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <label for="delete-count" data-i18n="lbl_count">Número de Mensajes</label>
+            <div class="count-container">
+                <input type="number" id="delete-count" min="1" value="10">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="delete-all-checkbox">
+                    <label for="delete-all-checkbox" data-i18n="lbl_delete_all">Borrar Todos</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <label data-i18n="lbl_range">Rango de Borrado (Opcional)</label>
+            <input type="text" id="delete-from" placeholder="Borrar DESDE este ID de mensaje" data-i18n-ph="ph_from">
+            <input type="text" id="delete-until" placeholder="Borrar HASTA este ID de mensaje" class="range-input" data-i18n-ph="ph_until">
+            <div class="toggle-buttons range-input">
+                <button id="order-desc" class="toggle-active" data-i18n="btn_desc">Descendente</button>
+                <button id="order-asc" data-i18n="btn_asc">Ascendente</button>
+            </div>
+        </div>
+
+        <button id="start-delete-btn" data-i18n="btn_start">Iniciar Borrado</button>
+        <button id="stop-delete-btn" disabled data-i18n="btn_stop">Detener Borrado</button>
+
+        <div id="status-container">
+            <p><strong data-i18n="lbl_status">Estado:</strong> <span id="status-text" data-i18n="status_inactive">Inactivo</span></p>
+            <div class="progress-bar">
+                <div id="progress-indicator"></div>
+            </div>
+        </div>
+
+        <div id="error-console-container" class="setting-group">
+            <div class="error-console-header">
+                <label data-i18n="lbl_errors">Errores</label>
+                <div class="error-console-actions">
+                    <button id="copy-error-btn" class="console-button" data-i18n="btn_copy">Copiar</button>
+                    <button id="clear-error-btn" class="console-button clear-button" data-i18n="btn_clear">Borrar</button>
+                </div>
+            </div>
+            <pre id="error-console-output"></pre>
+        </div>
+
+        <footer class="author-footer">
+            <a href="https://github.com/narc0tics4life" target="_blank">
+                <img src="icons/github128.png" alt="GitHub" class="github-icon">
+                <span>narc0tics4life</span>
+            </a>
+        </footer>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
