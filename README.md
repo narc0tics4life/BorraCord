@@ -10,6 +10,7 @@
   [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
   [![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](manifest.json)
   [![Discord](https://img.shields.io/badge/Discord-Compatible-5865F2.svg)]()
+  [![Ko-fi](https://img.shields.io/badge/Ko--Fi-donate-ff5a5f?logo=ko-fi&logoColor=white)](https://ko-fi.com/narc0tics4life)
 
   <br>
   
@@ -25,6 +26,8 @@
 ## 📖 About
 
 **BorraCord** is a browser extension dedicated to bulk deletion of direct messages or server messages on Discord. It is designed to be concise, easy to use, and safe, featuring an automatic delay system to help avoid hitting Discord rate limits.
+
+If you found the extension useful, a star is enough for me! But you can also support me on Ko-Fi if you'd like :3 🥇
 
 ## ✨ Features
 
