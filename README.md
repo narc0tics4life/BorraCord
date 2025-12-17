@@ -47,6 +47,7 @@ Based on the latest build v0.1.0:
   * 🇫🇷 Français
   * 🇯🇵 日本語
   * 🇩🇪 Deutsch
+  * 🇮🇳 हिन्दी (New)
 * **⚡ Auto-Detection:** Automatically grabs Channel and Guild IDs from your active Discord tab.
 * **⚙️ Safety Controls:** Adjustable delay slider (500ms - 5000ms) to help prevent Discord API timeouts.
 
