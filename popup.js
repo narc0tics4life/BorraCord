@@ -86,7 +86,7 @@ async function loadLanguage(lang) {
         translations = await response.json();
         applyTranslations();
         
-        const flagMap = { 'es': '🇪🇸', 'pt': '🇵🇹', 'en': '🇺🇸', 'fr': '🇫🇷', 'ja': '🇯🇵', 'de': '🇩🇪' };
+        const flagMap = { 'es': '🇪🇸', 'pt': '🇵🇹', 'en': '🇺🇸', 'fr': '🇫🇷', 'ja': '🇯🇵', 'de': '🇩🇪', 'hi': '🇮🇳' };
         if (currentFlag) currentFlag.textContent = flagMap[lang] || '🌐';
         
         currentLang = lang;
