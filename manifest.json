@@ -25,6 +25,12 @@
     "128": "icons/icon128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "borracord@narc0tics4life.github.io",
+      "strict_min_version": "109.0"
+    }
   }
 }
