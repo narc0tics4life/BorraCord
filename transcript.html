@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BorraCord - Transcript</title>
+    <style>
+        body {
+            background-color: #2f3136;
+            color: #dcddde;
+            font-family: 'Consolas', 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.4;
+        }
+        h1 { color: #fff; margin: 0 0 5px 0; font-size: 24px; border-bottom: 2px solid #faa61a; display: inline-block; padding-bottom: 5px; }
+        .info { color: #8e9297; font-size: 13px; margin-bottom: 15px; margin-top: 10px; }
+        .metadata {
+            background-color: #202225;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            border-left: 4px solid #faa61a;
+        }
+        .metadata p { margin: 4px 0; color: #b9bbbe; }
+        .metadata strong { color: #fff; }
+        hr { border: 0; border-top: 1px solid #4f545c; margin: 20px 0; }
+        #transcript-container { display: flex; flex-direction: column; }
+        .entry {
+            padding: 6px 0;
+            border-bottom: 1px solid #36393f;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .entry:last-child { border-bottom: none; }
+    </style>
+</head>
+<body>
+    <h1 id="t-title">BorraCord Transcript</h1>
+    <div class="info" id="t-info">Messages are logged here as they are deleted.</div>
+    <div class="metadata">
+        <p><strong id="l-date">Date</strong>: <span id="v-date">--/--/----</span></p>
+        <p><strong id="l-time">Time</strong>: <span id="v-time">--:--:--</span></p>
+        <p><strong id="l-context">Context</strong>: <span id="v-context">Loading...</span></p>
+    </div>
+    <hr>
+    <div id="transcript-container"></div>
+    <script src="transcript.js"></script>
+</body>
+</html>
