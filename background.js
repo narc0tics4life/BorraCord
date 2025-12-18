@@ -16,7 +16,7 @@ function getAuth() {
             userId = JSON.parse(ls.getItem('user_id_cache'));
             iframe.remove();
         } catch (e) {
-            console.warn("Método de obtención de credenciales (iframe) falló, intentando fallback:", e.message);
+            console.warn("Credential retrieval method (iframe) failed, attempting fallback:", e.message);
         }
 
         if (token && userId) {
@@ -25,7 +25,7 @@ function getAuth() {
 
         const webpackChunkName = Object.keys(window).find(key => key.startsWith('webpackChunk') && Array.isArray(window[key]));
         if (!webpackChunkName) {
-            throw new Error("No se encontró el 'webpack chunk' de Discord en el objeto window. El script puede ser obsoleto.");
+            throw new Error("Discord 'webpack chunk' not found in window object. Script might be outdated.");
         }
         const webpackChunk = window[webpackChunkName];
 
@@ -33,19 +33,19 @@ function getAuth() {
         webpackChunk.push([['borracord_inj'], {}, (e) => { for (let c in e.c) modules.push(e.c[c]); }]);
         
         const tokenFinder = modules.find(m => m?.exports?.default?.getToken);
-        if (!tokenFinder) throw new Error("No se encontró la función 'getToken' en los módulos de webpack.");
+        if (!tokenFinder) throw new Error("Function 'getToken' not found in webpack modules.");
         const foundToken = tokenFinder.exports.default.getToken();
 
         const userFinder = modules.find(m => m?.exports?.default?.getCurrentUser);
-        if (!userFinder) throw new Error("No se encontró la función 'getCurrentUser' en los módulos de webpack.");
+        if (!userFinder) throw new Error("Function 'getCurrentUser' not found in webpack modules.");
         const foundUserId = userFinder.exports.default.getCurrentUser().id;
 
-        if (!foundToken || !foundUserId) throw new Error("No se pudo obtener el token o userId desde webpack. Asegúrate de estar logueado.");
+        if (!foundToken || !foundUserId) throw new Error("Could not get token or userId from webpack. Make sure you are logged in.");
         
         return { token: foundToken, userId: foundUserId };
 
     } catch (e) {
-        return { error: `Ambos métodos fallaron. Error: ${e.message}. Asegúrate de estar en una página de Discord y haber iniciado sesión.` };
+        return { error: `Both methods failed. Error: ${e.message}. Make sure you are on a Discord page and logged in.` };
     }
 }
 
@@ -65,7 +65,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function updateStatus(text, percentage = 0, done = false) {
     lastStatus = { text, percentage, done };
-    chrome.runtime.sendMessage({ type: 'update-status', ...lastStatus }).catch(e => console.log("Error enviando estado:", e.message));
+    chrome.runtime.sendMessage({ type: 'update-status', ...lastStatus }).catch(e => console.log("Error sending status:", e.message));
 }
 
 function logErr(msg) {
@@ -75,7 +75,7 @@ function logErr(msg) {
 async function inject(func) {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tabId = tabs[0]?.id;
-    if (!tabId) throw new Error("No se encontró una pestaña activa de Discord.");
+    if (!tabId) throw new Error("No active Discord tab found.");
 
     const [result] = await chrome.scripting.executeScript({
         target: { tabId },
@@ -113,7 +113,7 @@ async function verifyChannelAndMode(authToken, channelId, mode) {
     }
 
     const channel = await resp.json();
-    if (!channel) throw new Error("No se pudo obtener la información del canal.");
+    if (!channel) throw new Error("Could not get channel information.");
     const isDm = channel.type === 1 || channel.type === 3;
     
     if (mode === 'server' && isDm) throw new Error(i18n.bg_err_mode_server_in_dm);
@@ -188,7 +188,7 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
                         timeValue: now.toLocaleTimeString(),
                         contextValue: targetName
                     }
-                }).catch(() => { console.warn("No se pudo inicializar el encabezado del transcript (pestaña cerrada o lenta)."); });
+                }).catch(() => { console.warn("Could not initialize transcript header (tab closed or slow)."); });
             } catch (e) { console.error("Error creating transcript tab:", e); }
         }
 
@@ -214,10 +214,10 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
             
         } else {
             if (fromId) {
-                try { await validateMessageId(authToken, channelId, fromId); } catch (e) { console.warn("Ignorando error de validación fromId:", e); }
+                try { await validateMessageId(authToken, channelId, fromId); } catch (e) { console.warn("Ignoring fromId validation error:", e); }
             }
             if (untilId) {
-                try { await validateMessageId(authToken, channelId, untilId); } catch (e) { console.warn("Ignorando error de validación untilId:", e); }
+                try { await validateMessageId(authToken, channelId, untilId); } catch (e) { console.warn("Ignoring untilId validation error:", e); }
             }
 
             await processChannel(authToken, userId, channelId, count, delay, null, { fromId, untilId, order });
@@ -225,7 +225,7 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
         }
 
     } catch (error) {
-        console.error("Error en el proceso de borrado:", error);
+        console.error("Error in deletion process:", error);
         const isKnownError = Object.values(i18n).includes(error.message);
         if (isKnownError) {
             logErr(error.message);
@@ -439,7 +439,7 @@ async function delMsgs(authToken, messages, delay) {
                 i--;
             } else {
                 job.failed++;
-                console.warn(`No se pudo borrar el mensaje ${message.id}, estado: ${resp.status}`);
+                console.warn(`Could not delete message ${message.id}, status: ${resp.status}`);
             }
         }
         

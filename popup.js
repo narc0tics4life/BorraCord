@@ -31,7 +31,7 @@ const langOptions = document.querySelectorAll('.lang-menu li');
 let running = false;
 let mode = 'server';
 let order = 'desc';
-let currentLang = 'es';
+let currentLang = 'en';
 let transcriptActive = false;
 let translations = {};
 
@@ -456,7 +456,7 @@ async function sendMsg(msg) {
             log(res.message);
         }
     } catch (e) {
-        if (e.message.includes("Receiving end does not exist")) console.warn("Popup cerrado antes de recibir respuesta.");
+        if (e.message.includes("Receiving end does not exist")) console.warn("Popup closed before receiving response.");
         else log(`Error: ${e.message}`);
     }
 }
@@ -482,6 +482,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             setStatus(res.status.text, res.status.percentage);
         }
     } catch (e) {
-        console.warn("No se pudo obtener el estado del background al iniciar:", e.message);
+        console.warn("Could not get background status on init:", e.message);
     }
 })();
