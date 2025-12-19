@@ -80,6 +80,7 @@ async function inject(func) {
     const [result] = await chrome.scripting.executeScript({
         target: { tabId },
         func: func,
+        world: 'MAIN',
     });
     
     if (result.result?.error) {
@@ -174,7 +175,19 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
             });
                 transcriptTabId = tab.id;
                 
-                await sleep(500);
+                if (tab.status !== 'complete') {
+                    await new Promise(resolve => {
+                        const listener = (tid, changeInfo) => {
+                            if (tid === transcriptTabId && changeInfo.status === 'complete') {
+                                chrome.tabs.onUpdated.removeListener(listener);
+                                resolve();
+                            }
+                        };
+                        chrome.tabs.onUpdated.addListener(listener);
+                        setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 3000);
+                    });
+                }
+                await sleep(100);
                 const now = new Date();
                 chrome.tabs.sendMessage(transcriptTabId, {
                     type: 'init-transcript',
@@ -285,18 +298,104 @@ async function getChannels(authToken, guildId) {
 }
 
 async function getMsgsByCount(authToken, userId, channelId, limit) {
+    try {
+        return await getMsgsByCountFast(authToken, userId, channelId, limit);
+    } catch (e) {
+        if (e.message.includes('400') || e.message.includes('403') || e.message.includes('500')) {
+            console.warn("Search API failed (Fast Mode), switching to Standard API (Safe Mode). Error:", e.message);
+            return await getMsgsByCountSlow(authToken, userId, channelId, limit);
+        }
+        throw e;
+    }
+}
+
+async function getMsgsByRange(authToken, userId, channelId, fromId, untilId) {
+    try {
+        return await getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId);
+    } catch (e) {
+        if (e.message.includes('400') || e.message.includes('403') || e.message.includes('500')) {
+            console.warn("Search API failed (Fast Mode), switching to Standard API (Safe Mode). Error:", e.message);
+            return await getMsgsByRangeSlow(authToken, userId, channelId, fromId, untilId);
+        }
+        throw e;
+    }
+}
+
+async function getMsgsByCountFast(authToken, userId, channelId, limit) {
     const allMessages = [];
-    let beforeId = null;
-    const batchSize = 100;
+    let offset = 0;
+    const batchSize = 25; // Search API is paginated by 25
+    let emptyHits = 0;
 
     while (running && (limit === -1 || allMessages.length < limit)) {
         updateStatus(i18n.bg_status_fetching.replace('{count}', allMessages.length));
         
+        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages/search`);
+        url.searchParams.set('author_id', userId);
+        url.searchParams.set('offset', offset);
+
+        const resp = await fetch(url.toString(), { headers: { 'Authorization': authToken } });
+
+        if (!resp.ok) {
+            if (resp.status === 429) {
+                const retryAfter = (await resp.json()).retry_after * 1000;
+                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.round(retryAfter / 1000)));
+                await sleep(retryAfter);
+                continue;
+            }
+            if (resp.status === 202) { // Search is indexing
+                const retryAfter = (await resp.json()).retry_after * 1000;
+                updateStatus('Discord is indexing... retrying soon.'); // Using a hardcoded string for simplicity
+                await sleep(retryAfter || 2000);
+                continue;
+            }
+            throw new Error(i18n.bg_err_get_msgs.replace('{status}', resp.status));
+        }
+
+        const searchResult = await resp.json();
+        const foundMessages = searchResult.messages.flat().filter(m => m.hit === true);
+
+        if (foundMessages.length === 0 && searchResult.messages.length > 0) {
+            emptyHits++;
+            if (emptyHits >= 3) break;
+        } else {
+            emptyHits = 0;
+        }
+
+        if (searchResult.messages.length === 0) {
+            break; // No more messages found
+        }
+
+        for (const msg of foundMessages) {
+            if (limit !== -1 && allMessages.length >= limit) break;
+            allMessages.push(msg);
+        }
+        
+        offset += searchResult.messages.length;
+        
+        if (offset >= searchResult.total_results) {
+            break; // Reached the end of all available messages
+        }
+
+        await sleep(300); // Increased sleep to be safer with search API
+    }
+    return allMessages;
+}
+
+async function getMsgsByCountSlow(authToken, userId, channelId, limit) {
+    const allMessages = [];
+    let beforeId = null;
+    const batchSize = 100;
+    let dots = 0;
+    let totalScanned = 0;
+
+    while (running && (limit === -1 || allMessages.length < limit)) {
+        dots = (dots + 1) % 4;
+        updateStatus(i18n.bg_status_fetching.replace('{count}', allMessages.length) + ` [Scan: ${totalScanned}]` + ".".repeat(dots));
+        
         const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages`);
         url.searchParams.set('limit', batchSize);
-        if (beforeId) {
-            url.searchParams.set('before', beforeId);
-        }
+        if (beforeId) url.searchParams.set('before', beforeId);
         
         const resp = await fetch(url.toString(), { headers: { 'Authorization': authToken } });
 
@@ -312,51 +411,88 @@ async function getMsgsByCount(authToken, userId, channelId, limit) {
 
         const messages = await resp.json();
         if (!messages || messages.length === 0) break;
-
+        totalScanned += messages.length;
         beforeId = messages[messages.length - 1].id;
-
         const userMessages = messages.filter(msg => msg.author.id === userId);
-
         for (const msg of userMessages) {
             if (limit !== -1 && allMessages.length >= limit) break;
             allMessages.push(msg);
         }
-        
         await sleep(200);
     }
     return allMessages;
 }
 
-async function getMsgsByRange(authToken, userId, channelId, fromId, untilId) {
+async function getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId) {
     const allMessages = [];
-    
-    const fromBig = fromId ? BigInt(fromId) : null;
-    const untilBig = untilId ? BigInt(untilId) : null;
-
-    let startPoint = null;
-    let endPoint = null;
-
-    if (fromBig && untilBig) {
-        startPoint = fromBig > untilBig ? fromId : untilId;
-        endPoint = fromBig < untilBig ? fromBig : untilBig;
-    } else if (fromId) {
-        startPoint = null;
-        endPoint = fromBig;
-    } else if (untilId) {
-        startPoint = null;
-        endPoint = untilBig;
-    }
-
-    let beforeId = startPoint;
+    let offset = 0;
+    let emptyHits = 0;
+    const batchSize = 25;
 
     while (running) {
         updateStatus(i18n.bg_status_fetching_range.replace('{count}', allMessages.length));
         
-        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages`);
-        url.searchParams.set('limit', 100);
-        if (beforeId) {
-            url.searchParams.set('before', beforeId);
+        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages/search`);
+        url.searchParams.set('author_id', userId);
+        url.searchParams.set('offset', offset);
+
+        if (fromId) url.searchParams.set('min_id', fromId);
+        if (untilId) url.searchParams.set('max_id', untilId);
+        
+        const resp = await fetch(url.toString(), { headers: { 'Authorization': authToken } });
+
+        if (!resp.ok) {
+            if (resp.status === 429) {
+                const retryAfter = (await resp.json()).retry_after * 1000;
+                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.round(retryAfter / 1000)));
+                await sleep(retryAfter);
+                continue;
+            }
+            if (resp.status === 202) {
+                const retryAfter = (await resp.json()).retry_after * 1000;
+                updateStatus('Discord is indexing... retrying soon.');
+                await sleep(retryAfter || 2000);
+                continue;
+            }
+            throw new Error(i18n.bg_err_get_msgs.replace('{status}', resp.status));
         }
+
+        const searchResult = await resp.json();
+        const foundMessages = searchResult.messages.flat().filter(m => m.hit === true);
+
+        if (foundMessages.length === 0 && searchResult.messages.length > 0) {
+            emptyHits++;
+            if (emptyHits >= 3) break;
+        } else {
+            emptyHits = 0;
+        }
+
+        if (searchResult.messages.length === 0) break;
+
+        allMessages.push(...foundMessages);
+        offset += searchResult.messages.length;
+        if (offset >= searchResult.total_results) break;
+
+        await sleep(300);
+    }
+    return allMessages;
+}
+
+async function getMsgsByRangeSlow(authToken, userId, channelId, fromId, untilId) {
+    const allMessages = [];
+    let beforeId = untilId || null;
+    const batchSize = 100;
+    const endId = fromId ? BigInt(fromId) : 0n;
+    let dots = 0;
+    let totalScanned = 0;
+
+    while (running) {
+        dots = (dots + 1) % 4;
+        updateStatus(i18n.bg_status_fetching_range.replace('{count}', allMessages.length) + ` [Scan: ${totalScanned}]` + ".".repeat(dots));
+        
+        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages`);
+        url.searchParams.set('limit', batchSize);
+        if (beforeId) url.searchParams.set('before', beforeId);
         
         const resp = await fetch(url.toString(), { headers: { 'Authorization': authToken } });
 
@@ -372,24 +508,14 @@ async function getMsgsByRange(authToken, userId, channelId, fromId, untilId) {
 
         const messages = await resp.json();
         if (!messages || messages.length === 0) break;
-
+        totalScanned += messages.length;
         beforeId = messages[messages.length - 1].id;
         
-        let stopLoop = false;
         for (const msg of messages) {
-            const msgBig = BigInt(msg.id);
-            
-            if (endPoint && msgBig < endPoint) {
-                stopLoop = true;
-                break;
-            }
-
-            if (msg.author.id === userId) {
-                allMessages.push(msg);
-            }
+            const msgId = BigInt(msg.id);
+            if (endId > 0n && msgId < endId) return allMessages;
+            if (msg.author.id === userId) allMessages.push(msg);
         }
-
-        if (stopLoop) break;
         await sleep(200);
     }
     return allMessages;
@@ -419,12 +545,12 @@ async function delMsgs(authToken, messages, delay) {
                     const attachmentLogs = message.attachments.map(a => {
                         const isImg = a.content_type?.startsWith('image/');
                         const isVid = a.content_type?.startsWith('video/');
-                        const label = isImg ? 'Imagen' : (isVid ? 'Video' : 'Archivo');
+                        const label = isImg ? 'Image' : (isVid ? 'Video' : 'File');
                         return `[${label}: ${a.filename}]`;
                     }).join(' ');
                     content += (content ? " " : "") + attachmentLogs;
                 }
-                const finalContent = content.trim() || "[Mensaje vacío]";
+                const finalContent = content.trim() || "[Empty message]";
                 const logLine = `${timeStr} [${dateStr}] ${message.author.username}: ${finalContent}`;
 
                 chrome.tabs.sendMessage(transcriptTabId, { type: 'transcript-log', line: logLine }).catch(() => {

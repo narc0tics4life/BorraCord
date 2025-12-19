@@ -21,8 +21,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    margin-bottom: 5px;
+    gap: 10px;    margin-bottom: 15px;
     position: relative;
 }
 
@@ -79,6 +78,21 @@ body {
 .lang-menu li:hover {
     background-color: #40444b;
     color: #fff;
+}
+
+.transcript-button {
+    background-color: rgba(250, 166, 26, 0.8);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.75em;
+    font-weight: 600;
+    cursor: pointer;
+    position: absolute;
+    right: 0;
+    top: 32px;
+    transition: background-color 0.2s;
 }
 
 #title-icon {
@@ -279,6 +293,51 @@ input[type="checkbox"]:checked::after {
     transform: rotate(45deg);
 }
 
+.extra-options-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+}
+
+.extra-options-header label {
+    margin-bottom: 0;
+    cursor: pointer;
+}
+
+.arrow-extra {
+    transition: transform 0.2s;
+}
+
+.arrow-extra.rotated {
+    transform: rotate(180deg);
+}
+
+.extra-options-content {
+    margin-top: 10px;
+}
+
+.extra-options-content.hidden {
+    display: none;
+}
+
+.missions-button {
+    background-color: #43b581; /* Green color */
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 15px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    width: 100%;
+}
+
+.missions-button:hover {
+    background-color: #3aa873;
+}
+
 #start-delete-btn {
     background-color: #7289da;
     color: #ffffff;
@@ -366,6 +425,7 @@ input[type="checkbox"]:checked::after {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    margin-bottom: 10px;
 }
 
 .error-console-header label {
