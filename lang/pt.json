@@ -72,6 +72,8 @@
     "transcript_time": "Hora",
     "transcript_server": "Servidor",
     "transcript_dm": "MD",
-    "bg_err_generic_js": "Erro de script inesperado"
+    "bg_err_generic_js": "Erro de script inesperado",
+    "bg_status_indexing": "Discord está indexando... tentando novamente em breve.",
+    "bg_status_fallback_slow": "Busca rápida falhou. Usando Modo de Segurança (mais lento)..."
 }
     

@@ -72,6 +72,8 @@
     "transcript_time": "समय",
     "transcript_server": "सर्वर",
     "transcript_dm": "DM",
-    "bg_err_generic_js": "अप्रत्याशित स्क्रिप्ट त्रुटि"
+    "bg_err_generic_js": "अप्रत्याशित स्क्रिप्ट त्रुटि",
+    "bg_status_indexing": "डिस्कॉर्ड इंडेक्स कर रहा है... जल्द ही पुनः प्रयास कर रहा है।",
+    "bg_status_fallback_slow": "तेज़ खोज विफल रही। सुरक्षित मोड (धीमा) का उपयोग कर रहा है..."
 }
     

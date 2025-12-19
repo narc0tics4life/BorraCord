@@ -146,6 +146,7 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
 
         let targetName = "";
         let isDmType = false;
+        let channel = null;
 
         if (deleteAllServer) {
             if (mode === 'dm') throw new Error(i18n.bg_err_server_mode_dm);
@@ -162,7 +163,7 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
             isDmType = false;
         } else {
             if (!channelId) throw new Error(i18n.bg_err_no_channel);
-            const channel = await verifyChannelAndMode(authToken, channelId, mode);
+            channel = await verifyChannelAndMode(authToken, channelId, mode);
             targetName = channel.name || (channel.recipients ? channel.recipients.map(r => r.username).join(", ") : "Unknown");
             isDmType = channel.type === 1 || channel.type === 3;
         }
@@ -220,8 +221,14 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
                 job.failed = 0;
                 job.total = 0;
                 
-                await processChannel(authToken, userId, channel.id, -1, delay, channel.name, { order });
-                totalDeleted += job.deleted;
+                try {
+                    await processChannel(authToken, userId, channel.id, -1, delay, channel.name, { order, guildId: targetGuildId });
+                    totalDeleted += job.deleted;
+                } catch (e) {
+                    console.error(`Failed to process channel ${channel.name} (${channel.id}):`, e);
+                    logErr(`Skipping channel "${channel.name}": ${e.message}`);
+                    await sleep(1000);
+                }
             }
             updateStatus(i18n.bg_status_server_done.replace('{count}', totalDeleted), 100, true);
             
@@ -233,7 +240,7 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
                 try { await validateMessageId(authToken, channelId, untilId); } catch (e) { console.warn("Ignoring untilId validation error:", e); }
             }
 
-            await processChannel(authToken, userId, channelId, count, delay, null, { fromId, untilId, order });
+            await processChannel(authToken, userId, channelId, count, delay, null, { fromId, untilId, order, guildId: channel.guild_id });
             updateStatus(i18n.bg_status_done.replace('{count}', job.deleted), 100, true);
         }
 
@@ -255,9 +262,9 @@ async function processChannel(authToken, userId, channelId, count, delay, channe
     
     let messages;
     if (range.fromId || range.untilId) {
-        messages = await getMsgsByRange(authToken, userId, channelId, range.fromId, range.untilId);
+        messages = await getMsgsByRange(authToken, userId, channelId, range.fromId, range.untilId, range.guildId);
     } else {
-        messages = await getMsgsByCount(authToken, userId, channelId, count);
+        messages = await getMsgsByCount(authToken, userId, channelId, count, range.guildId);
     }
 
     let effectiveOrder = range.order;
@@ -297,56 +304,94 @@ async function getChannels(authToken, guildId) {
     return await resp.json();
 }
 
-async function getMsgsByCount(authToken, userId, channelId, limit) {
+async function getMsgsByCount(authToken, userId, channelId, limit, guildId) {
     try {
-        return await getMsgsByCountFast(authToken, userId, channelId, limit);
+        return await getMsgsByCountFast(authToken, userId, channelId, limit, guildId);
     } catch (e) {
-        if (e.message.includes('400') || e.message.includes('403') || e.message.includes('500')) {
+        if (e.message.includes('403')) return [];
+        
+        if (e.message.includes('400')) {
             console.warn("Search API failed (Fast Mode), switching to Standard API (Safe Mode). Error:", e.message);
-            return await getMsgsByCountSlow(authToken, userId, channelId, limit);
+            try {
+                updateStatus(i18n.bg_status_fallback_slow);
+                await sleep(1500);
+                return await getMsgsByCountSlow(authToken, userId, channelId, limit);
+            } catch (e2) {
+                if (e2.message.includes('403')) return [];
+                throw e2;
+            }
         }
         throw e;
     }
 }
 
-async function getMsgsByRange(authToken, userId, channelId, fromId, untilId) {
+async function getMsgsByRange(authToken, userId, channelId, fromId, untilId, guildId) {
     try {
-        return await getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId);
+        return await getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId, guildId);
     } catch (e) {
-        if (e.message.includes('400') || e.message.includes('403') || e.message.includes('500')) {
+        if (e.message.includes('403')) return [];
+
+        if (e.message.includes('400')) {
             console.warn("Search API failed (Fast Mode), switching to Standard API (Safe Mode). Error:", e.message);
-            return await getMsgsByRangeSlow(authToken, userId, channelId, fromId, untilId);
+            try {
+                updateStatus(i18n.bg_status_fallback_slow);
+                await sleep(1500);
+                return await getMsgsByRangeSlow(authToken, userId, channelId, fromId, untilId);
+            } catch (e2) {
+                if (e2.message.includes('403')) return [];
+                throw e2;
+            }
         }
         throw e;
     }
 }
 
-async function getMsgsByCountFast(authToken, userId, channelId, limit) {
+async function getMsgsByCountFast(authToken, userId, channelId, limit, guildId) {
     const allMessages = [];
     let offset = 0;
-    const batchSize = 25; // Search API is paginated by 25
+    const batchSize = 25;
     let emptyHits = 0;
+    const foundIds = new Set();
+    let searchDelay = 600;
 
     while (running && (limit === -1 || allMessages.length < limit)) {
+        const preFetchCount = allMessages.length;
         updateStatus(i18n.bg_status_fetching.replace('{count}', allMessages.length));
         
-        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages/search`);
+        let url;
+        if (guildId) {
+            url = new URL(`https://discord.com/api/v9/guilds/${guildId}/messages/search`);
+            url.searchParams.set('channel_id', channelId);
+        } else {
+            url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages/search`);
+        }
         url.searchParams.set('author_id', userId);
         url.searchParams.set('offset', offset);
+        url.searchParams.set('sort_by', 'timestamp');
+        url.searchParams.set('sort_order', 'desc');
 
         const resp = await fetch(url.toString(), { headers: { 'Authorization': authToken } });
 
         if (!resp.ok) {
             if (resp.status === 429) {
-                const retryAfter = (await resp.json()).retry_after * 1000;
-                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.round(retryAfter / 1000)));
+                const json = await resp.json();
+                let retryAfter = (json.retry_after || 0) * 1000;
+                if (retryAfter < 1000) retryAfter = 1000;
+                searchDelay += 300;
+                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.ceil(retryAfter / 1000)));
                 await sleep(retryAfter);
                 continue;
             }
-            if (resp.status === 202) { // Search is indexing
+            if (resp.status === 202) {
                 const retryAfter = (await resp.json()).retry_after * 1000;
-                updateStatus('Discord is indexing... retrying soon.'); // Using a hardcoded string for simplicity
+                updateStatus(i18n.bg_status_indexing);
                 await sleep(retryAfter || 2000);
+                continue;
+            }
+            if (resp.status >= 500 && resp.status < 600) {
+                console.warn(`[BorraCord] Discord server error: ${resp.status}. Retrying in 5 seconds...`);
+                updateStatus(`Server error (${resp.status}). Retrying...`);
+                await sleep(5000);
                 continue;
             }
             throw new Error(i18n.bg_err_get_msgs.replace('{status}', resp.status));
@@ -355,29 +400,34 @@ async function getMsgsByCountFast(authToken, userId, channelId, limit) {
         const searchResult = await resp.json();
         const foundMessages = searchResult.messages.flat().filter(m => m.hit === true);
 
-        if (foundMessages.length === 0 && searchResult.messages.length > 0) {
-            emptyHits++;
-            if (emptyHits >= 3) break;
-        } else {
-            emptyHits = 0;
-        }
-
         if (searchResult.messages.length === 0) {
-            break; // No more messages found
+            break;
         }
 
         for (const msg of foundMessages) {
             if (limit !== -1 && allMessages.length >= limit) break;
-            allMessages.push(msg);
+            if (!foundIds.has(msg.id)) {
+                allMessages.push(msg);
+                foundIds.add(msg.id);
+            }
+        }
+        
+        if (allMessages.length === preFetchCount) {
+            emptyHits++;
+            if (emptyHits >= 5) {
+                break;
+            }
+        } else {
+            emptyHits = 0;
         }
         
         offset += searchResult.messages.length;
         
         if (offset >= searchResult.total_results) {
-            break; // Reached the end of all available messages
+            break;
         }
 
-        await sleep(300); // Increased sleep to be safer with search API
+        await sleep(searchDelay);
     }
     return allMessages;
 }
@@ -401,9 +451,17 @@ async function getMsgsByCountSlow(authToken, userId, channelId, limit) {
 
         if (!resp.ok) {
             if (resp.status === 429) {
-                const retryAfter = (await resp.json()).retry_after * 1000;
-                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.round(retryAfter / 1000)));
+                const json = await resp.json();
+                let retryAfter = (json.retry_after || 0) * 1000;
+                if (retryAfter < 1000) retryAfter = 1000;
+                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.ceil(retryAfter / 1000)));
                 await sleep(retryAfter);
+                continue;
+            }
+            if (resp.status >= 500 && resp.status < 600) {
+                console.warn(`[BorraCord] Discord server error: ${resp.status}. Retrying in 5 seconds...`);
+                updateStatus(`Server error (${resp.status}). Retrying...`);
+                await sleep(5000);
                 continue;
             }
             throw new Error(i18n.bg_err_get_msgs.replace('{status}', resp.status));
@@ -423,18 +481,29 @@ async function getMsgsByCountSlow(authToken, userId, channelId, limit) {
     return allMessages;
 }
 
-async function getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId) {
+async function getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId, guildId) {
     const allMessages = [];
     let offset = 0;
     let emptyHits = 0;
     const batchSize = 25;
+    const foundIds = new Set();
+    let searchDelay = 600;
 
     while (running) {
+        const preFetchCount = allMessages.length;
         updateStatus(i18n.bg_status_fetching_range.replace('{count}', allMessages.length));
         
-        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages/search`);
+        let url;
+        if (guildId) {
+            url = new URL(`https://discord.com/api/v9/guilds/${guildId}/messages/search`);
+            url.searchParams.set('channel_id', channelId);
+        } else {
+            url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages/search`);
+        }
         url.searchParams.set('author_id', userId);
         url.searchParams.set('offset', offset);
+        url.searchParams.set('sort_by', 'timestamp');
+        url.searchParams.set('sort_order', 'desc');
 
         if (fromId) url.searchParams.set('min_id', fromId);
         if (untilId) url.searchParams.set('max_id', untilId);
@@ -443,15 +512,24 @@ async function getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId)
 
         if (!resp.ok) {
             if (resp.status === 429) {
-                const retryAfter = (await resp.json()).retry_after * 1000;
-                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.round(retryAfter / 1000)));
+                const json = await resp.json();
+                let retryAfter = (json.retry_after || 0) * 1000;
+                if (retryAfter < 1000) retryAfter = 1000;
+                searchDelay += 300;
+                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.ceil(retryAfter / 1000)));
                 await sleep(retryAfter);
                 continue;
             }
             if (resp.status === 202) {
                 const retryAfter = (await resp.json()).retry_after * 1000;
-                updateStatus('Discord is indexing... retrying soon.');
+                updateStatus(i18n.bg_status_indexing);
                 await sleep(retryAfter || 2000);
+                continue;
+            }
+            if (resp.status >= 500 && resp.status < 600) {
+                console.warn(`[BorraCord] Discord server error: ${resp.status}. Retrying in 5 seconds...`);
+                updateStatus(`Server error (${resp.status}). Retrying...`);
+                await sleep(5000);
                 continue;
             }
             throw new Error(i18n.bg_err_get_msgs.replace('{status}', resp.status));
@@ -460,20 +538,31 @@ async function getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId)
         const searchResult = await resp.json();
         const foundMessages = searchResult.messages.flat().filter(m => m.hit === true);
 
-        if (foundMessages.length === 0 && searchResult.messages.length > 0) {
+        if (searchResult.messages.length === 0) {
+            break;
+        }
+
+        for (const msg of foundMessages) {
+            if (!foundIds.has(msg.id)) {
+                allMessages.push(msg);
+                foundIds.add(msg.id);
+            }
+        }
+        offset += searchResult.messages.length;
+        if (offset >= searchResult.total_results) {
+            break;
+        }
+        
+        if (allMessages.length === preFetchCount) {
             emptyHits++;
-            if (emptyHits >= 3) break;
+            if (emptyHits >= 5) {
+                break;
+            }
         } else {
             emptyHits = 0;
         }
 
-        if (searchResult.messages.length === 0) break;
-
-        allMessages.push(...foundMessages);
-        offset += searchResult.messages.length;
-        if (offset >= searchResult.total_results) break;
-
-        await sleep(300);
+        await sleep(searchDelay);
     }
     return allMessages;
 }
@@ -498,9 +587,17 @@ async function getMsgsByRangeSlow(authToken, userId, channelId, fromId, untilId)
 
         if (!resp.ok) {
             if (resp.status === 429) {
-                const retryAfter = (await resp.json()).retry_after * 1000;
-                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.round(retryAfter / 1000)));
+                const json = await resp.json();
+                let retryAfter = (json.retry_after || 0) * 1000;
+                if (retryAfter < 1000) retryAfter = 1000;
+                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.ceil(retryAfter / 1000)));
                 await sleep(retryAfter);
+                continue;
+            }
+            if (resp.status >= 500 && resp.status < 600) {
+                console.warn(`[BorraCord] Discord server error: ${resp.status}. Retrying in 5 seconds...`);
+                updateStatus(`Server error (${resp.status}). Retrying...`);
+                await sleep(5000);
                 continue;
             }
             throw new Error(i18n.bg_err_get_msgs.replace('{status}', resp.status));
@@ -528,45 +625,52 @@ async function delMsgs(authToken, messages, delay) {
             break;
         }
 
-        const message = messages[i];
-        const deleteUrl = `https://discord.com/api/v9/channels/${message.channel_id}/messages/${message.id}`;
-        
-        const resp = await fetch(deleteUrl, { method: 'DELETE', headers: { 'Authorization': authToken } });
+        try {
+            const message = messages[i];
+            const deleteUrl = `https://discord.com/api/v9/channels/${message.channel_id}/messages/${message.id}`;
+            
+            const resp = await fetch(deleteUrl, { method: 'DELETE', headers: { 'Authorization': authToken } });
 
-        if (resp.ok) {
-            job.deleted++;
-            if (transcriptTabId) {
-                const date = new Date(message.timestamp);
-                const timeStr = date.getHours().toString().padStart(2, '0') + ":" + date.getMinutes().toString().padStart(2, '0');
-                const dateStr = date.getDate().toString().padStart(2, '0') + "/" + (date.getMonth() + 1).toString().padStart(2, '0') + "/" + date.getFullYear();
-                
-                let content = message.content || "";
-                if (message.attachments && message.attachments.length > 0) {
-                    const attachmentLogs = message.attachments.map(a => {
-                        const isImg = a.content_type?.startsWith('image/');
-                        const isVid = a.content_type?.startsWith('video/');
-                        const label = isImg ? 'Image' : (isVid ? 'Video' : 'File');
-                        return `[${label}: ${a.filename}]`;
-                    }).join(' ');
-                    content += (content ? " " : "") + attachmentLogs;
+            if (resp.ok) {
+                job.deleted++;
+                if (transcriptTabId) {
+                    const date = new Date(message.timestamp);
+                    const timeStr = date.getHours().toString().padStart(2, '0') + ":" + date.getMinutes().toString().padStart(2, '0');
+                    const dateStr = date.getDate().toString().padStart(2, '0') + "/" + (date.getMonth() + 1).toString().padStart(2, '0') + "/" + date.getFullYear();
+                    
+                    let content = message.content || "";
+                    if (message.attachments && message.attachments.length > 0) {
+                        const attachmentLogs = message.attachments.map(a => {
+                            const isImg = a.content_type?.startsWith('image/');
+                            const isVid = a.content_type?.startsWith('video/');
+                            const label = isImg ? 'Image' : (isVid ? 'Video' : 'File');
+                            return `[${label}: ${a.filename}]`;
+                        }).join(' ');
+                        content += (content ? " " : "") + attachmentLogs;
+                    }
+                    const finalContent = content.trim() || "[Empty message]";
+                    const logLine = `${timeStr} [${dateStr}] ${message.author.username}: ${finalContent}`;
+
+                    chrome.tabs.sendMessage(transcriptTabId, { type: 'transcript-log', line: logLine }).catch(() => {
+                        transcriptTabId = null;
+                    });
                 }
-                const finalContent = content.trim() || "[Empty message]";
-                const logLine = `${timeStr} [${dateStr}] ${message.author.username}: ${finalContent}`;
-
-                chrome.tabs.sendMessage(transcriptTabId, { type: 'transcript-log', line: logLine }).catch(() => {
-                    transcriptTabId = null;
-                });
-            }
-        } else {
-            if (resp.status === 429) {
-                const retryAfter = (await resp.json()).retry_after * 1000;
-                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.round(retryAfter / 1000)));
-                await sleep(retryAfter);
-                i--;
             } else {
-                job.failed++;
-                console.warn(`Could not delete message ${message.id}, status: ${resp.status}`);
+                if (resp.status === 429) {
+                    const json = await resp.json();
+                    let retryAfter = (json.retry_after || 0) * 1000;
+                    if (retryAfter < 1000) retryAfter = 1000;
+                    updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.ceil(retryAfter / 1000)));
+                    await sleep(retryAfter);
+                    i--;
+                } else {
+                    job.failed++;
+                    console.warn(`Could not delete message ${message.id}, status: ${resp.status}`);
+                }
             }
+        } catch (e) {
+            console.error("Error deleting message:", e);
+            job.failed++;
         }
         
         const percentage = (job.deleted + job.failed) / job.total * 100;

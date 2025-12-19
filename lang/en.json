@@ -72,6 +72,8 @@
     "transcript_time": "Time",
     "transcript_server": "Server",
     "transcript_dm": "DM",
-    "bg_err_generic_js": "Unexpected script error"
+    "bg_err_generic_js": "Unexpected script error",
+    "bg_status_indexing": "Discord is indexing... retrying soon.",
+    "bg_status_fallback_slow": "Fast search failed. Using Safe Mode (slower)..."
 }
     
