@@ -8,13 +8,13 @@
   Available in 6 languages.
   
   [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-  [![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](manifest.json)
+  [![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](manifest.json)
   [![Discord](https://img.shields.io/badge/Discord-Compatible-5865F2.svg)]()
   [![Ko-fi](https://img.shields.io/badge/Ko--Fi-donate-ff5a5f?logo=ko-fi&logoColor=white)](https://ko-fi.com/narc0tics4life)
 
   <br>
   
-  <img src="icons/interface.PNG" alt="BorraCord Interface" width="350" />
+  <img src="icons/interface.png" alt="BorraCord Interface" width="350" />
   
   <br><br>
 

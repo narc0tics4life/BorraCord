@@ -72,6 +72,8 @@
     "transcript_time": "Uhrzeit",
     "transcript_server": "Server",
     "transcript_dm": "DM",
-    "bg_err_generic_js": "Unerwarteter Skriptfehler"
+    "bg_err_generic_js": "Unerwarteter Skriptfehler",
+    "bg_status_indexing": "Discord indiziert... baldiger erneuter Versuch.",
+    "bg_status_fallback_slow": "Schnellsuche fehlgeschlagen. Verwende Sicherheitsmodus (langsamer)..."
 }
     

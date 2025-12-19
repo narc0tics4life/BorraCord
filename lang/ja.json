@@ -72,6 +72,8 @@
     "transcript_time": "時刻",
     "transcript_server": "サーバー",
     "transcript_dm": "DM",
-    "bg_err_generic_js": "予期しないスクリプトエラー"
+    "bg_err_generic_js": "予期しないスクリプトエラー",
+    "bg_status_indexing": "Discordがインデックスを作成中...まもなく再試行します。",
+    "bg_status_fallback_slow": "高速検索に失敗しました。セーフモード（低速）を使用しています..."
 }
     

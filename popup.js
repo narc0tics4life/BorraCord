@@ -369,7 +369,9 @@ btnStart.addEventListener('click', async () => {
             transcript_time: t('transcript_time'),
             transcript_server: t('transcript_server'),
             transcript_dm: t('transcript_dm'),
-            bg_err_generic_js: t('bg_err_generic_js')
+            bg_err_generic_js: t('bg_err_generic_js'),
+            bg_status_indexing: t('bg_status_indexing'),
+            bg_status_fallback_slow: t('bg_status_fallback_slow')
         }
     };
 
