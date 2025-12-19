@@ -2,6 +2,7 @@ let running = false;
 let job = { deleted: 0, failed: 0, total: 0 };
 let i18n = {};
 let lastStatus = { text: '', percentage: 0, done: false };
+let transcriptTabId = null;
 
 function getAuth() {
     try {
@@ -79,6 +80,7 @@ async function inject(func) {
     const [result] = await chrome.scripting.executeScript({
         target: { tabId },
         func: func,
+        world: 'MAIN',
     });
     
     if (result.result?.error) {
@@ -112,14 +114,16 @@ async function verifyChannelAndMode(authToken, channelId, mode) {
     }
 
     const channel = await resp.json();
+    if (!channel) throw new Error("Could not get channel information.");
     const isDm = channel.type === 1 || channel.type === 3;
     
     if (mode === 'server' && isDm) throw new Error(i18n.bg_err_mode_server_in_dm);
     if (mode === 'dm' && !isDm) throw new Error(i18n.bg_err_mode_dm_in_server);
+    return channel;
 }
 
 
-async function run({ delay, count, channelId: manualChannelId, guildId: manualGuildId, mode, deleteAllServer, fromId, untilId, order, i18n: i18n_payload }) {
+async function run({ delay, count, channelId: manualChannelId, guildId: manualGuildId, mode, deleteAllServer, fromId, untilId, order, transcript, i18n: i18n_payload }) {
     if (running) {
         logErr(i18n.bg_err_running);
         return;
@@ -128,6 +132,7 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
     i18n = i18n_payload;
     running = true;
     job = { deleted: 0, failed: 0, total: count };
+    transcriptTabId = null;
     updateStatus(i18n.bg_status_creds);
 
     try {
@@ -138,13 +143,69 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
         const userId = creds.userId;
         const channelId = manualChannelId || context.channelId;
 
+        let targetName = "";
+        let isDmType = false;
+
         if (deleteAllServer) {
             if (mode === 'dm') throw new Error(i18n.bg_err_server_mode_dm);
-
-            const targetGuildId = manualGuildId || context.guildId;
-            if (!targetGuildId || targetGuildId === '@me') {
-                throw new Error(i18n.bg_err_no_guild);
+            const targetGuildId = manualGuildId;
+            if (!targetGuildId || targetGuildId === '@me') throw new Error(i18n.bg_err_no_guild);
+            
+            const gResp = await fetch(`https://discord.com/api/v9/guilds/${targetGuildId}`, { headers: { 'Authorization': authToken } }).catch(() => null);
+            if (gResp && gResp.ok) {
+                const gData = await gResp.json();
+                targetName = gData.name;
+            } else {
+                targetName = `Server ID: ${targetGuildId}`;
             }
+            isDmType = false;
+        } else {
+            if (!channelId) throw new Error(i18n.bg_err_no_channel);
+            const channel = await verifyChannelAndMode(authToken, channelId, mode);
+            targetName = channel.name || (channel.recipients ? channel.recipients.map(r => r.username).join(", ") : "Unknown");
+            isDmType = channel.type === 1 || channel.type === 3;
+        }
+
+        if (transcript) {
+            try {
+                const tab = await chrome.tabs.create({ 
+                    url: chrome.runtime.getURL('transcript.html'),
+                    active: false 
+            });
+                transcriptTabId = tab.id;
+                
+                if (tab.status !== 'complete') {
+                    await new Promise(resolve => {
+                        const listener = (tid, changeInfo) => {
+                            if (tid === transcriptTabId && changeInfo.status === 'complete') {
+                                chrome.tabs.onUpdated.removeListener(listener);
+                                resolve();
+                            }
+                        };
+                        chrome.tabs.onUpdated.addListener(listener);
+                        setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 3000);
+                    });
+                }
+                await sleep(100);
+                const now = new Date();
+                chrome.tabs.sendMessage(transcriptTabId, {
+                    type: 'init-transcript',
+                    data: {
+                        title: i18n.transcript_title,
+                        info: i18n.transcript_info,
+                        dateLabel: i18n.transcript_date,
+                        timeLabel: i18n.transcript_time,
+                        contextLabel: isDmType ? i18n.transcript_dm : i18n.transcript_server,
+                        dateValue: now.toLocaleDateString(),
+                        timeValue: now.toLocaleTimeString(),
+                        contextValue: targetName
+                    }
+                }).catch(() => { console.warn("Could not initialize transcript header (tab closed or slow)."); });
+            } catch (e) { console.error("Error creating transcript tab:", e); }
+        }
+
+        if (deleteAllServer) {
+            const targetGuildId = manualGuildId;
             updateStatus(i18n.bg_status_get_channels);
             const channels = await getChannels(authToken, targetGuildId);
             const textChannels = channels.filter(c => c.type === 0 || c.type === 5);
@@ -164,19 +225,11 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
             updateStatus(i18n.bg_status_server_done.replace('{count}', totalDeleted), 100, true);
             
         } else {
-            if (!channelId) {
-                throw new Error(i18n.bg_err_no_channel);
-            }
-            
-            
-            await verifyChannelAndMode(authToken, channelId, mode);
-
-        
             if (fromId) {
-                try { await validateMessageId(authToken, channelId, fromId); } catch (e) { console.warn("Ignorando error de validación fromId:", e); }
+                try { await validateMessageId(authToken, channelId, fromId); } catch (e) { console.warn("Ignoring fromId validation error:", e); }
             }
             if (untilId) {
-                try { await validateMessageId(authToken, channelId, untilId); } catch (e) { console.warn("Ignorando error de validación untilId:", e); }
+                try { await validateMessageId(authToken, channelId, untilId); } catch (e) { console.warn("Ignoring untilId validation error:", e); }
             }
 
             await processChannel(authToken, userId, channelId, count, delay, null, { fromId, untilId, order });
@@ -184,8 +237,13 @@ async function run({ delay, count, channelId: manualChannelId, guildId: manualGu
         }
 
     } catch (error) {
-        console.error("Error en el proceso de borrado:", error);
-        logErr(error.message || i18n.bg_err_unknown);
+        console.error("Error in deletion process:", error);
+        const isKnownError = Object.values(i18n).includes(error.message);
+        if (isKnownError) {
+            logErr(error.message);
+        } else {
+            logErr(`${i18n.bg_err_generic_js || 'Unexpected script error'}: ${error.message || i18n.bg_err_unknown}`);
+        }
     } finally {
         running = false;
     }
@@ -239,18 +297,104 @@ async function getChannels(authToken, guildId) {
 }
 
 async function getMsgsByCount(authToken, userId, channelId, limit) {
+    try {
+        return await getMsgsByCountFast(authToken, userId, channelId, limit);
+    } catch (e) {
+        if (e.message.includes('400') || e.message.includes('403') || e.message.includes('500')) {
+            console.warn("Search API failed (Fast Mode), switching to Standard API (Safe Mode). Error:", e.message);
+            return await getMsgsByCountSlow(authToken, userId, channelId, limit);
+        }
+        throw e;
+    }
+}
+
+async function getMsgsByRange(authToken, userId, channelId, fromId, untilId) {
+    try {
+        return await getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId);
+    } catch (e) {
+        if (e.message.includes('400') || e.message.includes('403') || e.message.includes('500')) {
+            console.warn("Search API failed (Fast Mode), switching to Standard API (Safe Mode). Error:", e.message);
+            return await getMsgsByRangeSlow(authToken, userId, channelId, fromId, untilId);
+        }
+        throw e;
+    }
+}
+
+async function getMsgsByCountFast(authToken, userId, channelId, limit) {
     const allMessages = [];
-    let beforeId = null;
-    const batchSize = 100;
+    let offset = 0;
+    const batchSize = 25; // Search API is paginated by 25
+    let emptyHits = 0;
 
     while (running && (limit === -1 || allMessages.length < limit)) {
         updateStatus(i18n.bg_status_fetching.replace('{count}', allMessages.length));
         
+        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages/search`);
+        url.searchParams.set('author_id', userId);
+        url.searchParams.set('offset', offset);
+
+        const resp = await fetch(url.toString(), { headers: { 'Authorization': authToken } });
+
+        if (!resp.ok) {
+            if (resp.status === 429) {
+                const retryAfter = (await resp.json()).retry_after * 1000;
+                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.round(retryAfter / 1000)));
+                await sleep(retryAfter);
+                continue;
+            }
+            if (resp.status === 202) { // Search is indexing
+                const retryAfter = (await resp.json()).retry_after * 1000;
+                updateStatus('Discord is indexing... retrying soon.'); // Using a hardcoded string for simplicity
+                await sleep(retryAfter || 2000);
+                continue;
+            }
+            throw new Error(i18n.bg_err_get_msgs.replace('{status}', resp.status));
+        }
+
+        const searchResult = await resp.json();
+        const foundMessages = searchResult.messages.flat().filter(m => m.hit === true);
+
+        if (foundMessages.length === 0 && searchResult.messages.length > 0) {
+            emptyHits++;
+            if (emptyHits >= 3) break;
+        } else {
+            emptyHits = 0;
+        }
+
+        if (searchResult.messages.length === 0) {
+            break; // No more messages found
+        }
+
+        for (const msg of foundMessages) {
+            if (limit !== -1 && allMessages.length >= limit) break;
+            allMessages.push(msg);
+        }
+        
+        offset += searchResult.messages.length;
+        
+        if (offset >= searchResult.total_results) {
+            break; // Reached the end of all available messages
+        }
+
+        await sleep(300); // Increased sleep to be safer with search API
+    }
+    return allMessages;
+}
+
+async function getMsgsByCountSlow(authToken, userId, channelId, limit) {
+    const allMessages = [];
+    let beforeId = null;
+    const batchSize = 100;
+    let dots = 0;
+    let totalScanned = 0;
+
+    while (running && (limit === -1 || allMessages.length < limit)) {
+        dots = (dots + 1) % 4;
+        updateStatus(i18n.bg_status_fetching.replace('{count}', allMessages.length) + ` [Scan: ${totalScanned}]` + ".".repeat(dots));
+        
         const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages`);
         url.searchParams.set('limit', batchSize);
-        if (beforeId) {
-            url.searchParams.set('before', beforeId);
-        }
+        if (beforeId) url.searchParams.set('before', beforeId);
         
         const resp = await fetch(url.toString(), { headers: { 'Authorization': authToken } });
 
@@ -266,51 +410,88 @@ async function getMsgsByCount(authToken, userId, channelId, limit) {
 
         const messages = await resp.json();
         if (!messages || messages.length === 0) break;
-
+        totalScanned += messages.length;
         beforeId = messages[messages.length - 1].id;
-
         const userMessages = messages.filter(msg => msg.author.id === userId);
-
         for (const msg of userMessages) {
             if (limit !== -1 && allMessages.length >= limit) break;
             allMessages.push(msg);
         }
-        
         await sleep(200);
     }
     return allMessages;
 }
 
-async function getMsgsByRange(authToken, userId, channelId, fromId, untilId) {
+async function getMsgsByRangeFast(authToken, userId, channelId, fromId, untilId) {
     const allMessages = [];
-    
-    const fromBig = fromId ? BigInt(fromId) : null;
-    const untilBig = untilId ? BigInt(untilId) : null;
-
-    let startPoint = null;
-    let endPoint = null;
-
-    if (fromBig && untilBig) {
-        startPoint = fromBig > untilBig ? fromId : untilId;
-        endPoint = fromBig < untilBig ? fromBig : untilBig;
-    } else if (fromId) {
-        startPoint = null;
-        endPoint = fromBig;
-    } else if (untilId) {
-        startPoint = null;
-        endPoint = untilBig;
-    }
-
-    let beforeId = startPoint;
+    let offset = 0;
+    let emptyHits = 0;
+    const batchSize = 25;
 
     while (running) {
         updateStatus(i18n.bg_status_fetching_range.replace('{count}', allMessages.length));
         
-        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages`);
-        url.searchParams.set('limit', 100);
-        if (beforeId) {
-            url.searchParams.set('before', beforeId);
+        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages/search`);
+        url.searchParams.set('author_id', userId);
+        url.searchParams.set('offset', offset);
+
+        if (fromId) url.searchParams.set('min_id', fromId);
+        if (untilId) url.searchParams.set('max_id', untilId);
+        
+        const resp = await fetch(url.toString(), { headers: { 'Authorization': authToken } });
+
+        if (!resp.ok) {
+            if (resp.status === 429) {
+                const retryAfter = (await resp.json()).retry_after * 1000;
+                updateStatus(i18n.bg_status_ratelimit.replace('{seconds}', Math.round(retryAfter / 1000)));
+                await sleep(retryAfter);
+                continue;
+            }
+            if (resp.status === 202) {
+                const retryAfter = (await resp.json()).retry_after * 1000;
+                updateStatus('Discord is indexing... retrying soon.');
+                await sleep(retryAfter || 2000);
+                continue;
+            }
+            throw new Error(i18n.bg_err_get_msgs.replace('{status}', resp.status));
         }
+
+        const searchResult = await resp.json();
+        const foundMessages = searchResult.messages.flat().filter(m => m.hit === true);
+
+        if (foundMessages.length === 0 && searchResult.messages.length > 0) {
+            emptyHits++;
+            if (emptyHits >= 3) break;
+        } else {
+            emptyHits = 0;
+        }
+
+        if (searchResult.messages.length === 0) break;
+
+        allMessages.push(...foundMessages);
+        offset += searchResult.messages.length;
+        if (offset >= searchResult.total_results) break;
+
+        await sleep(300);
+    }
+    return allMessages;
+}
+
+async function getMsgsByRangeSlow(authToken, userId, channelId, fromId, untilId) {
+    const allMessages = [];
+    let beforeId = untilId || null;
+    const batchSize = 100;
+    const endId = fromId ? BigInt(fromId) : 0n;
+    let dots = 0;
+    let totalScanned = 0;
+
+    while (running) {
+        dots = (dots + 1) % 4;
+        updateStatus(i18n.bg_status_fetching_range.replace('{count}', allMessages.length) + ` [Scan: ${totalScanned}]` + ".".repeat(dots));
+        
+        const url = new URL(`https://discord.com/api/v9/channels/${channelId}/messages`);
+        url.searchParams.set('limit', batchSize);
+        if (beforeId) url.searchParams.set('before', beforeId);
         
         const resp = await fetch(url.toString(), { headers: { 'Authorization': authToken } });
 
@@ -326,24 +507,14 @@ async function getMsgsByRange(authToken, userId, channelId, fromId, untilId) {
 
         const messages = await resp.json();
         if (!messages || messages.length === 0) break;
-
+        totalScanned += messages.length;
         beforeId = messages[messages.length - 1].id;
         
-        let stopLoop = false;
         for (const msg of messages) {
-            const msgBig = BigInt(msg.id);
-            
-            if (endPoint && msgBig < endPoint) {
-                stopLoop = true;
-                break;
-            }
-
-            if (msg.author.id === userId) {
-                allMessages.push(msg);
-            }
+            const msgId = BigInt(msg.id);
+            if (endId > 0n && msgId < endId) return allMessages;
+            if (msg.author.id === userId) allMessages.push(msg);
         }
-
-        if (stopLoop) break;
         await sleep(200);
     }
     return allMessages;
@@ -363,6 +534,28 @@ async function delMsgs(authToken, messages, delay) {
 
         if (resp.ok) {
             job.deleted++;
+            if (transcriptTabId) {
+                const date = new Date(message.timestamp);
+                const timeStr = date.getHours().toString().padStart(2, '0') + ":" + date.getMinutes().toString().padStart(2, '0');
+                const dateStr = date.getDate().toString().padStart(2, '0') + "/" + (date.getMonth() + 1).toString().padStart(2, '0') + "/" + date.getFullYear();
+                
+                let content = message.content || "";
+                if (message.attachments && message.attachments.length > 0) {
+                    const attachmentLogs = message.attachments.map(a => {
+                        const isImg = a.content_type?.startsWith('image/');
+                        const isVid = a.content_type?.startsWith('video/');
+                        const label = isImg ? 'Image' : (isVid ? 'Video' : 'File');
+                        return `[${label}: ${a.filename}]`;
+                    }).join(' ');
+                    content += (content ? " " : "") + attachmentLogs;
+                }
+                const finalContent = content.trim() || "[Empty message]";
+                const logLine = `${timeStr} [${dateStr}] ${message.author.username}: ${finalContent}`;
+
+                chrome.tabs.sendMessage(transcriptTabId, { type: 'transcript-log', line: logLine }).catch(() => {
+                    transcriptTabId = null;
+                });
+            }
         } else {
             if (resp.status === 429) {
                 const retryAfter = (await resp.json()).retry_after * 1000;
