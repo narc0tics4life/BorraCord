@@ -5,7 +5,7 @@
   
   **The simple, intuitive, and powerful bulk message deleter for Discord.**
   
-  Available in 6 languages.
+  Available in 7 languages.
   
   [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
   [![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](manifest.json)
