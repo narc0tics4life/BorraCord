@@ -323,7 +323,7 @@ async function getMsgsByRange(authToken, userId, channelId, fromId, untilId) {
 async function getMsgsByCountFast(authToken, userId, channelId, limit) {
     const allMessages = [];
     let offset = 0;
-    const batchSize = 25; // Search API is paginated by 25
+    const batchSize = 25;
     let emptyHits = 0;
 
     while (running && (limit === -1 || allMessages.length < limit)) {
@@ -342,9 +342,9 @@ async function getMsgsByCountFast(authToken, userId, channelId, limit) {
                 await sleep(retryAfter);
                 continue;
             }
-            if (resp.status === 202) { // Search is indexing
+            if (resp.status === 202) {
                 const retryAfter = (await resp.json()).retry_after * 1000;
-                updateStatus('Discord is indexing... retrying soon.'); // Using a hardcoded string for simplicity
+                updateStatus('Discord is indexing... retrying soon.');
                 await sleep(retryAfter || 2000);
                 continue;
             }
@@ -362,7 +362,7 @@ async function getMsgsByCountFast(authToken, userId, channelId, limit) {
         }
 
         if (searchResult.messages.length === 0) {
-            break; // No more messages found
+            break;
         }
 
         for (const msg of foundMessages) {
@@ -373,10 +373,10 @@ async function getMsgsByCountFast(authToken, userId, channelId, limit) {
         offset += searchResult.messages.length;
         
         if (offset >= searchResult.total_results) {
-            break; // Reached the end of all available messages
+            break;
         }
 
-        await sleep(300); // Increased sleep to be safer with search API
+        await sleep(300);
     }
     return allMessages;
 }
